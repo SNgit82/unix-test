@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unix File System (MVC)</title>
+  <style>
+    /* Basic styles for the different blocks in the filesystem visualization */
+    .block {
+      display: inline-block;
+      width: 150px;
+      height: 200px;
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin: 10px;
+      border-radius: 10px;
+      font-size: 14px;
+    }
+    .superblock {
+      background-color: #ff69b4;
+    }
+    .inode {
+      background-color: #33cc33;
+    }
+    .datablock {
+      background-color: #8327f1;
+    }
+    .main-container {
+      display: flex;
+      justify-content: space-between;
+    }
+    .block-view {
+      flex: 1;
+      text-align: left;
+    }
+    .block-view > div {
+      display: inline-block;
+      vertical-align: top;
+      margin: 10px;
+    }
+    h1 {
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 30px;
+    }
+    h2 {
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 10px;
+      font-size: large;
+    }
+    select {
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      font-size: 16px;
+    }
+    .popup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: #fff;
+      padding: 20px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      display: none;
+    }
+    #user-view {
+      text-align: left;
+      margin-top: 20px;
+      padding: 15px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      background-color: #f9f9f9;
+    }
+    #user-view ul {
+      list-style-type: none;
+      padding: 0;
+    }
+    #user-view li {
+      margin-bottom: 10px;
+      padding: 10px;
+      background-color: #e0f7fa;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+    #user-view h3 {
+      margin-bottom: 10px;
+    }
+    .folder-icon, .file-icon {
+      width: 20px;
+      margin-right: 5px;
+    }
+    .hierarchy-view {
+      margin-left: 20px;
+    }
+    #tree-view {
+      text-align: center;
+      margin-top: 40px;
+      padding: 15px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      background-color: #f0f8ff;
+    }
+    .tree-item {
+      display: block;
+      margin: 20px auto;
+      position: relative;
+      padding: 10px;
+      border-radius: 5px;
+      background-color: #e6f7ff;
+      width: fit-content;
+    }
+    .tree-item:after {
+      content: '';
+      display: block;
+      width: 1px;
+      height: 40px;
+      background: #000;
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    .tree-arrow {
+      content: '';
+      display: block;
+      border: 1px solid black;
+      border-width: 0 2px 2px 0;
+      padding: 3px;
+      transform: rotate(45deg);
+      position: absolute;
+      top: 95%;
+      left: 50%;
+      margin-left: -5px;
+    }
+    .tree-item.superblock {
+      background-color: #ff69b4;
+    }
+    .tree-item.inode {
+      background-color: #33cc33;
+    }
+    .tree-item.datablock {
+      background-color: #8327f1;
+    }
+
+    /* Log Box Styles */
+    #log-box {
+      width: 30%;
+      height: 600px;
+      overflow-y: auto;
+      border: 1px solid #bbb;
+      padding: 15px;
+      margin-left: 20px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #eebdf7, #f7edbd);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      flex-shrink: 0;
+    }
+
+    #log-box h2 {
+      margin-top: 0;
+      font-size: 20px;
+      font-weight: bold;
+      color: #444;
+      position: sticky;
+      top: 0;
+      padding: 10px 10px;
+      z-index: 1;
+    }
+
+    #log-box p {
+      font-size: 15px;
+      font-weight: 500;
+      color: #555;
+      margin-bottom: 10px;
+      padding-left: 10px;
+      border-left: 3px solid #8307ca;
+    }
+    body {
+      background: linear-gradient(135deg, #6cb3f6, #f7edbd);
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Unix File System</h1>
+  <h2>Block View</h2>
+  <select id="operation" onchange="performOperation()">
+    <option value="">Select Operation</option>
+    <option value="createDirectory">Create Directory</option>
+    <option value="createFile">Create File</option>
+    <option value="writeToFile">Write to File</option>
+    <option value="readFile">Read File</option>
+    <option value="deleteFile">Delete File</option>
+  </select>
+
+  <div class="main-container">
+    <div class="block-view"></div>
+
+    <!-- Log Box to show the actions taken by the user -->
+    <div id="log-box">
+      <h2>Action Log</h2>
+      <div id="log-content"></div>
+    </div>
+  </div>
+
+  <!-- Popup for creating a new directory -->
+  <div class="popup" id="directory-creation-popup">
+    <h2>Create Directory</h2>
+    <form id="directory-creation-form">
+      <label for="directory-name">Enter a name for the new directory:</label>
+      <input type="text" id="directory-name" required>
+      <br><br>
+      <button type="submit">Create Directory</button>
+    </form>
+  </div>
+
+  <!-- Popup for creating a new file -->
+  <div class="popup" id="file-creation-popup">
+    <h2>Create File</h2>
+    <form id="file-creation-form">
+      <label for="file-name">Enter the full path for the new file:</label>
+      <input type="text" id="file-path" required placeholder="./path/to/filename">
+      <br><br>
+      <button type="submit">Create File</button>
+    </form>
+  </div>
+
+  <!-- Popup for writing data to a file -->
+  <div class="popup" id="write-to-file-popup">
+    <h2>Write to File</h2>
+    <form id="write-to-file-form">
+      <label for="file-select">Select a file:</label>
+      <select id="file-select" required></select>
+      <br><br>
+      <label for="file-data">Enter data to write:</label>
+      <textarea id="file-data" rows="4" cols="50" required></textarea>
+      <br><br>
+      <button type="submit">Write Data</button>
+    </form>
+  </div>
+
+  <!-- Popup for reading data from a file -->
+  <div class="popup" id="read-file-popup">
+    <h2>Read File</h2>
+    <form id="read-file-form">
+      <label for="read-file-select">Select a file to read:</label>
+      <select id="read-file-select" required></select>
+      <br><br>
+      <button type="submit">Read File</button>
+    </form>
+  </div>
+
+  <!-- Popup for displaying file data -->
+  <div class="popup" id="file-data-popup">
+    <h2>File Data</h2>
+    <p id="file-data-content"></p>
+    <button onclick="closeFileDataPopup()">Close</button>
+  </div>
+
+  <!-- Popup for deleting a file -->
+  <div class="popup" id="delete-file-popup">
+    <h2>Delete File</h2>
+    <form id="delete-file-form">
+      <label for="delete-file-select">Select a file to delete:</label>
+      <select id="delete-file-select" required></select>
+      <br><br>
+      <button type="submit">Delete File</button>
+    </form>
+  </div>
+
+  <h2>User View</h2>
+  <div id="user-view">
+    <h3>File System Hierarchy</h3>
+    <ul>
+      <ul id="file-hierarchy" class="hierarchy-view"></ul>
+    </ul>
+  </div>
+
+  <h2>Tree View</h2>
+  <div id="tree-view">
+    <div id="tree-content"></div>
+  </div>
+
+  <script>
+    // Superblock class represents the superblock of the filesystem
+    class Superblock {
+      constructor(inodes, datablocks, rootNode, blockSize) {
+        this.inodes = inodes; // Number of inodes in the filesystem
+        this.datablocks = datablocks; // Number of datablocks in the filesystem
+        this.rootNode = rootNode; // Index of the root inode
+        this.blockSize = blockSize; // Size of each block in the filesystem
+      }
+    }
+
+    // Inode class represents an inode in the filesystem
+    class Inode {
+      constructor(id, isRoot = false) {
+        this.id = id; // Unique identifier for the inode
+        this.isRoot = isRoot; // Boolean flag to indicate if this is the root inode
+        this.datablocks = []; // List of datablock IDs associated with this inode
+      }
+
+      // Add a datablock to the inode
+      addDatablock(datablock) {
+        this.datablocks.push(datablock);
+      }
+
+      // Clear all datablocks associated with the inode
+      clearDatablocks() {
+        this.datablocks = [];
+      }
+    }
+
+    // Datablock class represents a datablock in the filesystem
+    class Datablock {
+      constructor(id, availableSpace) {
+        this.id = id; // Unique identifier for the datablock
+        this.availableSpace = availableSpace; // Available space in the datablock
+        this.files = []; // List of files stored in the datablock
+        this.data = null; // Data stored in the datablock
+        this.pointsToInode = null; // ID of the inode this datablock points to
+      }
+
+      // Store a file in the datablock
+      storeFile(file) {
+        this.files.push(file);
+      }
+
+      // Store data in the datablock
+      storeData(data) {
+        this.data = data;
+      }
+
+      // Clear the data and reset the datablock
+      clearData() {
+        this.data = null;
+        this.files = [];
+        this.availableSpace = 512; // Reset available space to 512 bytes
+        this.pointsToInode = null;
+      }
+
+      // Update the available space in the datablock
+      updateAvailableSpace(bytes) {
+        this.availableSpace -= bytes;
+      }
+
+      // Set the inode that this datablock points to
+      setPointsToInode(inodeId) {
+        this.pointsToInode = inodeId;
+      }
+
+      // Generate display information for the datablock
+      getDisplayInfo() {
+        let fileDescriptions = this.files.map(file => file.isDirectory ? `Directory: ${file.name}, Inode: ${file.inodeId}` : `File: ${file.name}`).join(', ');
+        let inodeInfo = this.pointsToInode !== null ? `Points to Inode ${this.pointsToInode}` : '';
+
+        return `
+          <div class="block datablock">
+            <h2>Datablock ${this.id}</h2>
+            <p>${fileDescriptions}</p>
+            <p>${inodeInfo}</p>
+            ${this.data ? `<p>Data Written: ${this.data}</p>` : ''}
+          </div>
+        `;
+      }
+    }
+
+    // FileSystemModel class represents the model in the MVC architecture
+    class FileSystemModel {
+      constructor() {
+        this.inodes = []; // List of inodes in the filesystem
+        this.datablocks = []; // List of datablocks in the filesystem
+        this.superblock = null; // Superblock of the filesystem
+        this.createdFiles = []; // List of created files and directories
+      }
+
+      // Initialize the filesystem with inodes and datablocks
+      initializeFileSystem() {
+        let rootInodeIndex = Math.floor(Math.random() * 9);  // Randomly pick one inode as the root
+        for (let i = 0; i < 9; i++) {
+          this.inodes.push(new Inode(i, i === rootInodeIndex)); // Create inodes
+        }
+
+        for (let i = 0; i < 11; i++) {
+          this.datablocks.push(new Datablock(i, 512)); // Create datablocks
+        }
+
+        this.superblock = new Superblock(this.inodes.length, this.datablocks.length, rootInodeIndex, 512); // Create superblock
+        let rootDatablockId = Math.floor(Math.random() * this.datablocks.length);
+        this.inodes[rootInodeIndex].addDatablock(rootDatablockId); // Link root inode to a datablock
+      }
+    }
+
+    // FileSystemView class represents the view in the MVC architecture
+    class FileSystemView {
+      // Render the superblock information
+      static renderSuperblock(superblock) {
+        return `
+          <div class="block superblock">
+            <h2>Superblock</h2>
+            <p>No. of Inodes: ${superblock.inodes}</p>
+            <p>No. of Datablocks: ${superblock.datablocks}</p>
+            <p>Root Node: ${superblock.rootNode}</p>
+            <p>Block Size: ${superblock.blockSize} Bytes</p>
+          </div>
+        `;
+      }
+
+      // Render the list of inodes
+      static renderInodes(inodes) {
+        return inodes.map(inode => {
+          let datablockDetails = inode.datablocks.map(datablockId => {
+            return `<p>Points to Datablock ${datablockId}</p>`;
+          }).join('');
+
+          return `
+            <div class="block inode">
+              <h2>Inode ${inode.id}</h2>
+              ${inode.isRoot ? '<p>Root Node</p>' : ''}
+              ${datablockDetails}
+            </div>
+          `;
+        }).join('');
+      }
+
+      // Render the list of datablocks
+      static renderDatablocks(datablocks) {
+        return datablocks.map(block => block.getDisplayInfo()).join('');
+      }
+
+      // Render the entire filesystem view
+      static renderFileSystem(superblock, inodes, datablocks) {
+        document.querySelector('.block-view').innerHTML = `
+          ${this.renderSuperblock(superblock)}
+          ${this.renderInodes(inodes)}
+          ${this.renderDatablocks(datablocks)}
+        `;
+        this.renderUserView();
+        this.renderTreeView();
+      }
+
+      // Render the hierarchical tree view of the filesystem
+      static renderTreeView() {
+        const tree = document.getElementById("tree-content");
+
+        tree.innerHTML = model.createdFiles.map(file => `
+          <div class="tree-item ${file.isDirectory ? 'inode' : 'datablock'}">
+            ${file.isDirectory ? `Inode (Directory): ${file.name}` : `Datablock (File): ${file.name}`}
+            <span class="tree-arrow"></span>
+          </div>
+        `).join('');
+      }
+
+      // Render the user view showing the filesystem hierarchy
+      static renderUserView() {
+        const userView = document.getElementById("file-hierarchy");
+
+        // Function to render the file and directory hierarchy recursively
+        const renderHierarchy = (path, items) => {
+          return items.map(item => {
+            if (item.isDirectory) {
+              // If it's a directory, render its files inside it
+              const childItems = model.createdFiles.filter(file => file.fullPath.startsWith(`${item.fullPath}/`) && file.fullPath.split('/').length === item.fullPath.split('/').length + 1);
+              return `
+                <li>
+                  <img src="folder-icon.png" alt="folder" class="folder-icon">
+                  <strong>${item.name}</strong>
+                  <ul>
+                    ${renderHierarchy(item.fullPath, childItems)}
+                  </ul>
+                </li>
+              `;
+            } else {
+              // If it's a file, just render it
+              return `
+                <li>
+                  <img src="file-icon.png" alt="file" class="file-icon">
+                  <strong class="file-link" data-file="${item.fullPath}">${item.name}</strong>
+                </li>
+              `;
+            }
+          }).join('');
+        };
+
+        // Start rendering from the root level
+        const rootItems = model.createdFiles.filter(file => file.fullPath.split('/').length === 2); // Files and directories directly under root
+        userView.innerHTML = renderHierarchy('.', rootItems);
+
+        document.querySelectorAll('.file-link').forEach(fileLink => {
+          fileLink.addEventListener('click', function () {
+            const fileName = this.getAttribute('data-file');
+            controller.displayFileData(fileName);
+          });
+        });
+      }
+    }
+
+    // FileSystemController class represents the controller in the MVC architecture
+    class FileSystemController {
+      constructor(model, view) {
+        this.model = model; // Reference to the model
+        this.view = view; // Reference to the view
+        this.selectedInodeId = null; // Track selected inode ID
+      }
+
+      // Initialize the controller and start the application
+      init() {
+        this.model.initializeFileSystem(); // Initialize the filesystem
+        this.view.renderFileSystem(this.model.superblock, this.model.inodes, this.model.datablocks); // Render the initial filesystem view
+        this.bindEventListeners(); // Bind event listeners to the UI
+        this.toggleCreateFileOption(); // Disable "Create File" until a directory is present
+        this.logInitialInfo(); // Log initial information about Superblock and root node
+      }
+
+      // Bind event listeners to various forms and buttons
+      bindEventListeners() {
+        document.getElementById("directory-creation-form").addEventListener("submit", event => {
+          event.preventDefault();
+          let directoryName = document.getElementById("directory-name").value;
+          this.createDirectory(directoryName);
+        });
+
+        document.getElementById("file-creation-form").addEventListener("submit", event => {
+          event.preventDefault();
+          let filePath = document.getElementById("file-path").value;
+          this.createFile(filePath);
+        });
+
+        document.getElementById("write-to-file-form").addEventListener("submit", event => {
+          event.preventDefault();
+          let filePath = document.getElementById("file-select").value;
+          let fileData = document.getElementById("file-data").value;
+
+          if (!filePath) {
+            alert("Please select a file.");
+            return;
+          }
+
+          this.writeToFile(filePath, fileData);
+        });
+
+        document.getElementById("read-file-form").addEventListener("submit", event => {
+          event.preventDefault();
+          let filePath = document.getElementById("read-file-select").value;
+
+          if (!filePath) {
+            alert("Please select a file.");
+            return;
+          }
+
+          this.readFile(filePath);
+        });
+
+        document.getElementById("delete-file-form").addEventListener("submit", event => {
+          event.preventDefault();
+          let filePath = document.getElementById("delete-file-select").value;
+
+          if (!filePath) {
+            alert("Please select a file.");
+            return;
+          }
+
+          this.deleteFile(filePath);
+        });
+      }
+
+      // Toggle the "Create File" option based on directory availability
+      toggleCreateFileOption() {
+        const fileOption = document.querySelector("option[value='createFile']");
+        if (this.model.createdFiles.some(file => file.isDirectory)) {
+          fileOption.disabled = false;
+        } else {
+          fileOption.disabled = true;
+        }
+      }
+
+      // Create a new directory in the filesystem
+      createDirectory(directoryName) {
+        let rootInode = this.model.inodes[this.model.superblock.rootNode];
+        let rootDatablockId = rootInode.datablocks[0]; // The datablock the root inode points to
+
+        let availableInodes = this.model.inodes.filter(inode => inode.id !== rootInode.id && inode.datablocks.length === 0);
+        let availableDatablocks = this.model.datablocks.filter(block => block.files.length === 0 && block.data === null);
+
+        if (availableInodes.length === 0 || availableDatablocks.length === 0 || this.model.datablocks[rootDatablockId].availableSpace < 100) {
+          alert('No available inodes, datablocks, or enough space in root datablock to create a directory.');
+          return;
+        }
+
+        let directoryInode = availableInodes[Math.floor(Math.random() * availableInodes.length)];
+        let directoryDatablock = availableDatablocks[Math.floor(Math.random() * availableDatablocks.length)];
+
+        // Store the directory in the root inode's datablock
+        this.model.datablocks[rootDatablockId].storeFile({ name: directoryName, inodeId: directoryInode.id, isDirectory: true });
+        this.model.datablocks[rootDatablockId].updateAvailableSpace(100);
+
+        // Assign the selected datablock to the directory's inode
+        directoryInode.addDatablock(directoryDatablock.id);
+
+        this.model.createdFiles.push({
+          name: directoryName,
+          inode: directoryInode.id,
+          datablock: directoryDatablock.id,
+          isDirectory: true,
+          fullPath: `./${directoryName}`
+        });
+
+        this.view.renderFileSystem(this.model.superblock, this.model.inodes, this.model.datablocks); // Re-render the filesystem view
+        this.toggleCreateFileOption(); // Enable "Create File" after directory creation
+        document.getElementById("directory-creation-popup").style.display = "none";
+        
+        logAction(`Created directory "${directoryName}" which points to Inode ${directoryInode.id}.`);
+      }
+
+      // Create a new file in the filesystem
+      createFile(filePath) {
+        const pathParts = filePath.split('/');
+        const fileName = pathParts.pop();
+        const directoryPath = pathParts.join('/');
+
+        if (!fileName || !directoryPath.startsWith('.')) {
+          alert("Invalid path format. Please enter a valid path like './directory/filename'.");
+          return;
+        }
+
+        let directory = this.findDirectory(directoryPath);
+
+        if (!directory) {
+          alert("Directory not found. Please create the directory first.");
+          return;
+        }
+
+        let availableInodes = this.model.inodes.filter(inode => inode.datablocks.length === 0);
+        if (availableInodes.length === 0) {
+          alert('No available inodes to assign to the file.');
+          return;
+        }
+
+        let selectedInode = availableInodes[Math.floor(Math.random() * availableInodes.length)];
+        let directoryDatablock = this.model.datablocks[directory.datablock];
+
+        if (directoryDatablock.availableSpace < 100) {
+          alert('Not enough space in the directory.');
+          return;
+        }
+
+        // Store the file in the directory's datablock
+        directoryDatablock.storeFile({ name: fileName, inodeId: selectedInode.id, isDirectory: false });
+        directoryDatablock.updateAvailableSpace(100);
+
+        this.model.createdFiles.push({
+          name: fileName,
+          inode: selectedInode.id,
+          datablock: directoryDatablock.id,
+          isDirectory: false,
+          fullPath: filePath
+        });
+
+        this.view.renderFileSystem(this.model.superblock, this.model.inodes, this.model.datablocks); // Re-render the filesystem view
+        document.getElementById("file-creation-popup").style.display = "none";
+        
+        logAction(`Directory "${directoryPath}" points to Datablock ${directoryDatablock.id}, therefore created file "${fileName}" in directory "${directoryPath}" at Datablock ${directoryDatablock.id}.`);
+      }
+
+      // Find a directory in the filesystem
+      findDirectory(directoryPath) {
+        return this.model.createdFiles.find(file => file.isDirectory && file.fullPath === directoryPath);
+      }
+
+      // Write data to an existing file
+      writeToFile(filePath, fileData) {
+        let file = this.model.createdFiles.find(f => f.fullPath === filePath);
+        if (!file) {
+          alert('File not found.');
+          return;
+        }
+
+        let availableDatablocks = this.model.datablocks.filter(block => block.files.length === 0 && block.data === null);
+        if (availableDatablocks.length === 0) {
+          alert('No available empty datablock found for the selected file.');
+          return;
+        }
+
+        // Select a random empty datablock to write data
+        let selectedDatablock = availableDatablocks[Math.floor(Math.random() * availableDatablocks.length)];
+
+        // Write data to the empty datablock
+        selectedDatablock.storeData(fileData);
+        selectedDatablock.updateAvailableSpace(fileData.length);
+
+        // Update the file's inode to point to this datablock
+        let inode = this.model.inodes[file.inode];
+        inode.addDatablock(selectedDatablock.id);
+
+        // Update the file's datablock to show the inode it points to
+        let fileDatablock = this.model.datablocks[file.datablock];
+        fileDatablock.setPointsToInode(file.inode);
+
+        alert(`Data written to ${filePath} in datablock ${selectedDatablock.id}.`);
+        document.getElementById("write-to-file-popup").style.display = "none";
+        this.view.renderFileSystem(this.model.superblock, this.model.inodes, this.model.datablocks); // Re-render the filesystem view
+        
+        logAction(`File "${filePath}" points to Inode ${inode.id} and this Inode points to Datablock ${selectedDatablock.id}. Wrote data to file "${filePath}" in Datablock ${selectedDatablock.id}.`);
+      }
+
+      // Read data from an existing file
+      readFile(filePath) {
+        let file = this.model.createdFiles.find(f => f.fullPath === filePath);
+        if (!file) {
+          alert('File not found.');
+          return;
+        }
+
+        let inode = this.model.inodes[file.inode];
+        if (!inode || inode.datablocks.length === 0) {
+          alert('No datablock associated with this file.');
+          return;
+        }
+
+        let dataBlock = this.model.datablocks.find(block => block.id === inode.datablocks[0]);
+        if (dataBlock && dataBlock.data) {
+          document.getElementById("file-data-content").textContent = `Data for ${filePath}: ${dataBlock.data}`;
+          document.getElementById("file-data-popup").style.display = "block";
+          document.getElementById("read-file-popup").style.display = "none";
+          
+          logAction(`Read file "${filePath}". Data displayed.`);
+        } else {
+          alert('No data found for the selected file.');
+        }
+      }
+
+      // Delete an existing file
+      deleteFile(filePath) {
+        let fileIndex = this.model.createdFiles.findIndex(f => f.fullPath === filePath);
+        if (fileIndex === -1) {
+          alert('File not found.');
+          return;
+        }
+
+        let file = this.model.createdFiles[fileIndex];
+        this.model.createdFiles.splice(fileIndex, 1); // Remove file from created files list
+
+        // Clear the inode's datablocks
+        let inode = this.model.inodes[file.inode];
+        inode.datablocks.forEach(datablockId => {
+          let datablock = this.model.datablocks.find(block => block.id === datablockId);
+          if (datablock) {
+            datablock.clearData();
+          }
+        });
+        inode.clearDatablocks();
+
+        // Clear the file from the datablock that stores the file name
+        let fileDatablock = this.model.datablocks[file.datablock];
+        fileDatablock.clearData();
+
+        alert(`File ${filePath} deleted.`);
+        this.view.renderFileSystem(this.model.superblock, this.model.inodes, this.model.datablocks); // Re-render the filesystem view
+        document.getElementById("delete-file-popup").style.display = "none";
+        
+        logAction(`Deleted file "${filePath}". Cleared associated datablocks and inode.`);
+      }
+
+      // Display data of a selected file
+      displayFileData(filePath) {
+        const file = this.model.createdFiles.find(f => f.fullPath === filePath);
+        if (!file) {
+          alert('File not found.');
+          return;
+        }
+
+        const dataBlock = this.model.datablocks.find(block => block.id === file.datablock);
+        if (dataBlock && dataBlock.data) {
+          document.getElementById("file-data-content").textContent = `Data for ${filePath}: ${dataBlock.data}`;
+        } else {
+          document.getElementById("file-data-content").textContent = `No data written to this file.`;
+        }
+        document.getElementById("file-data-popup").style.display = "block";
+      }
+
+      // Populate the file selection dropdown for writing data
+      populateFileOptions() {
+        const fileSelect = document.getElementById("file-select");
+        fileSelect.innerHTML = '<option value="">Select File</option>';
+        const files = this.model.createdFiles.filter(file => !file.isDirectory);
+
+        if (files.length === 0) {
+          alert('No files available for writing. Please create a file first.');
+          document.getElementById("write-to-file-popup").style.display = "none";
+          return;
+        }
+
+        files.forEach(file => {
+          const option = document.createElement("option");
+          option.value = file.fullPath;
+          option.textContent = file.fullPath;
+          fileSelect.appendChild(option);
+        });
+      }
+
+      // Populate the file selection dropdown for reading data
+      populateReadFileOptions() {
+        const readFileSelect = document.getElementById("read-file-select");
+        readFileSelect.innerHTML = '<option value="">Select File</option>';
+
+        const filesWithData = this.model.createdFiles.filter(file => {
+          let inode = this.model.inodes[file.inode];
+          if (!inode || inode.datablocks.length === 0) return false;
+          let dataBlock = this.model.datablocks.find(block => block.id === inode.datablocks[0]);
+          return dataBlock && dataBlock.data !== null;
+        });
+
+        if (filesWithData.length === 0) {
+          alert('No files with data available to read.');
+          document.getElementById("read-file-popup").style.display = "none";
+          return;
+        }
+
+        filesWithData.forEach(file => {
+          const option = document.createElement("option");
+          option.value = file.fullPath;
+          option.textContent = file.fullPath;
+          readFileSelect.appendChild(option);
+        });
+      }
+
+      // Populate the file selection dropdown for deleting a file
+      populateDeleteFileOptions() {
+        const deleteFileSelect = document.getElementById("delete-file-select");
+        deleteFileSelect.innerHTML = '<option value="">Select File</option>';
+
+        const nonDirectoryFiles = this.model.createdFiles.filter(file => !file.isDirectory);
+
+        if (nonDirectoryFiles.length === 0) {
+          alert('No files available for deletion.');
+          document.getElementById("delete-file-popup").style.display = "none";
+          return;
+        }
+
+        nonDirectoryFiles.forEach(file => {
+          const option = document.createElement("option");
+          option.value = file.fullPath;
+          option.textContent = file.fullPath;
+          deleteFileSelect.appendChild(option);
+        });
+      }
+
+      // Log initial information about the superblock and root inode
+      logInitialInfo() {
+        const superblock = this.model.superblock;
+        logAction(`Superblock contains ${superblock.inodes} Inodes and ${superblock.datablocks} Datablocks. It also contains the Root Node at Inode ${superblock.rootNode}. Each Block Size is ${superblock.blockSize} Bytes.`);
+
+        const rootInode = this.model.inodes[superblock.rootNode];
+        logAction(`Root Node is at Inode ${rootInode.id} which points to Datablock: ${rootInode.datablocks.join(', ')}`);
+      }
+    }
+
+    // Initialize Model, View, and Controller
+    let model = new FileSystemModel(); // Model handles data and logic
+    let view = FileSystemView; // View handles UI rendering
+    let controller = new FileSystemController(model, view); // Controller manages interactions between model and view
+
+    // Start the application
+    controller.init();
+
+    // Utility functions
+
+    // Log actions to the log box
+    function logAction(message) {
+      const logContent = document.getElementById('log-content');
+      const logEntry = document.createElement('p');
+      logEntry.textContent = message;
+      logContent.appendChild(logEntry);
+      logContent.scrollTop = logContent.scrollHeight; // Scroll to the bottom of the log
+    }
+
+    // Handle operation selection from the dropdown
+    function performOperation() {
+      const operation = document.getElementById("operation").value;
+
+      document.getElementById("directory-creation-popup").style.display = "none";
+      document.getElementById("file-creation-popup").style.display = "none";
+      document.getElementById("write-to-file-popup").style.display = "none";
+      document.getElementById("read-file-popup").style.display = "none";
+      document.getElementById("delete-file-popup").style.display = "none";
+
+      if (operation === "createFile") {
+        document.getElementById("file-creation-popup").style.display = "block";
+      } else if (operation === "createDirectory") {
+        document.getElementById("directory-creation-popup").style.display = "block";
+      } else if (operation === "writeToFile") {
+        controller.populateFileOptions();
+        document.getElementById("write-to-file-popup").style.display = "block";
+      } else if (operation === "readFile") {
+        controller.populateReadFileOptions();
+        document.getElementById("read-file-popup").style.display = "block";
+      } else if (operation === "deleteFile") {
+        controller.populateDeleteFileOptions();
+        document.getElementById("delete-file-popup").style.display = "block";
+      }
+    }
+
+    // Close the file data popup
+    function closeFileDataPopup() {
+      document.getElementById("file-data-popup").style.display = "none";
+    }
+  </script>
+</body>
+</html>
